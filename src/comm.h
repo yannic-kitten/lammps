@@ -20,14 +20,16 @@ namespace LAMMPS_NS {
 
 class Comm : protected Pointers {
  public:
-  enum { BRICK, TILED };
+  enum { BRICK, TILED, STAGGERED };
   int style;    // BRICK = 6-way stencil communication
                 // TILED = irregular tiling communication
+                // STAGGERED = staggered communication
 
-  enum { LAYOUT_UNIFORM, LAYOUT_NONUNIFORM, LAYOUT_TILED };
+  enum { LAYOUT_UNIFORM, LAYOUT_NONUNIFORM, LAYOUT_TILED, LAYOUT_STAGGERED };
   int layout;    // LAYOUT_UNIFORM = equal-sized bricks
                  // LAYOUT_NONUNIFORM = logical bricks, but diff sizes via LB
                  // LAYOUT_TILED = general tiling, due to RCB LB
+                 // LAYOUT_STAGGERED = staggered mesh due to LB
   enum { SINGLE, MULTI, MULTIOLD };
   int mode;    // SINGLE = single cutoff
                // MULTI = multi-collection cutoff
@@ -64,6 +66,18 @@ class Comm : protected Pointers {
   double mysplit[3][2];    // fractional (0-1) bounds of my sub-domain
   double rcbcutfrac;       // fractional RCB cut by this proc
   int rcbcutdim;           // dimension of RCB cut
+
+  // public settings specific to layout = STAGGERED
+
+  int *** staggered_grid2proc;      // which proc owns layer,row,cell in staggered grid
+  int ** staggered_proc2grid;       // which proc owns layer,row,cell in staggered grid
+  int staggerednew;                 // 1 if just reset by rebalance, else 0
+  int staggered_procgrid[3];        // layers, rows, cells
+  int staggered_myloc[3];           // layers, rows, cells
+  int n_layers, n_rows, n_cells;    // number of layers/rows/cells
+  int staggered2spatial[3];         // layer/row/cell to x/y/z
+  int spatial2staggered[3];         // x/y/z to layer/row/cell
+
 
   // methods
 
