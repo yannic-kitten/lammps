@@ -324,7 +324,7 @@ void Domain::set_global_box()
 
 void Domain::set_lamda_box()
 {
-  if (comm->layout != Comm::LAYOUT_TILED) {
+  if (comm->layout != Comm::LAYOUT_TILED && comm->layout != Comm::LAYOUT_STAGGERED) {
     int *myloc = comm->myloc;
     double *xsplit = comm->xsplit;
     double *ysplit = comm->ysplit;
@@ -361,7 +361,7 @@ void Domain::set_local_box()
 {
   if (triclinic) return;
 
-  if (comm->layout != Comm::LAYOUT_TILED) {
+  if (comm->layout != Comm::LAYOUT_TILED && comm->layout != Comm::LAYOUT_STAGGERED) {
     int *myloc = comm->myloc;
     int *procgrid = comm->procgrid;
     double *xsplit = comm->xsplit;
