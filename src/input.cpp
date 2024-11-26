@@ -22,6 +22,7 @@
 #include "comm.h"
 #include "comm_brick.h"
 #include "comm_tiled.h"
+#include "comm_staggered.h"
 #include "command.h"
 #include "compute.h"
 #include "dihedral.h"
@@ -1455,6 +1456,12 @@ void Input::comm_style()
     Comm *oldcomm = comm;
     if (lmp->kokkos) comm = new CommTiledKokkos(lmp,oldcomm);
     else comm = new CommTiled(lmp,oldcomm);
+    delete oldcomm;
+  } else if (strcmp(arg[0],"staggered") == 0) {
+    if (narg < 2) error->all(FLERR,"Illegal comm_style staggered command");
+    Comm *oldcomm = comm;
+    if (lmp->kokkos) error->all(FLERR,"kokkos is not supported by CommStaggered");
+    else comm = new CommStaggered(lmp, oldcomm, arg[1]);
     delete oldcomm;
   } else error->all(FLERR,"Unknown comm_style argument: {}", arg[0]);
 }
