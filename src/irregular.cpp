@@ -51,6 +51,14 @@ Irregular::Irregular(LAMMPS *lmp) :
   MPI_Comm_rank(world, &me);
   MPI_Comm_size(world, &nprocs);
 
+#ifdef DEBUG_COMM_STAGGERED
+  char logfile[50];
+  sprintf(logfile, "scratch/irregular_%i.log", me);
+  fp = fopen(logfile, "w");
+  fprintf(fp, "new log proc %i\n", me);
+  fflush(fp);
+#endif
+
   triclinic = domain->triclinic;
   map_style = atom->map_style;
 
@@ -89,6 +97,9 @@ Irregular::~Irregular()
   memory->destroy(work2);
   memory->destroy(buf_send);
   memory->destroy(buf_recv);
+#ifdef DEBUG_COMM_STAGGERED
+  fclose(fp);
+#endif
 }
 
 /* ----------------------------------------------------------------------
@@ -105,6 +116,10 @@ Irregular::~Irregular()
 
 void Irregular::migrate_atoms(int sortflag, int preassign, int *procassign)
 {
+#ifdef DEBUG_COMM_STAGGERED
+  fprintf(fp, "Hello from migrate_atoms\n");
+  fflush(fp);
+#endif
   // check if buf_send needs to be extended due to atom style or per-atom fixes
   // same as in Comm::exchange()
 
@@ -131,10 +146,17 @@ void Irregular::migrate_atoms(int sortflag, int preassign, int *procassign)
     sublo = domain->sublo_lamda;
     subhi = domain->subhi_lamda;
   }
+#ifdef DEBUG_COMM_STAGGERED
+  fprintf(fp, "sublo %f %f %f subhi %f %f %f\n", sublo[0], sublo[1], sublo[2], subhi[0], subhi[1], subhi[2]);
+  fflush(fp);
+#endif
 
   // if Comm will be called to assign new atom coords to procs,
   // may need to setup RCB info
 
+#ifdef DEBUG_COMM_STAGGERED
+  if (!preassign) fprintf(fp, "call comm->coord2proc_setup\n");
+#endif
   if (!preassign) comm->coord2proc_setup();
 
   // loop over atoms, flag any that are not in my sub-box
@@ -162,6 +184,10 @@ void Irregular::migrate_atoms(int sortflag, int preassign, int *procassign)
   int i = 0;
 
   if (preassign) {
+#ifdef DEBUG_COMM_STAGGERED
+    fprintf(fp, "loop over preassigned atoms");
+    fflush(fp);
+#endif
     while (i < nlocal) {
       if (procassign[i] == me) i++;
       else {
@@ -177,11 +203,20 @@ void Irregular::migrate_atoms(int sortflag, int preassign, int *procassign)
     }
 
   } else {
+#ifdef DEBUG_COMM_STAGGERED
+    fprintf(fp, "loop over not preassigned atoms");
+    fflush(fp);
+    igx = igy = igz = -42;
+#endif
     while (i < nlocal) {
       if (x[i][0] < sublo[0] || x[i][0] >= subhi[0] ||
           x[i][1] < sublo[1] || x[i][1] >= subhi[1] ||
           x[i][2] < sublo[2] || x[i][2] >= subhi[2]) {
         mproclist[nsendatom] = comm->coord2proc(x[i],igx,igy,igz);
+#ifdef DEBUG_COMM_STAGGERED
+        fprintf(fp, "atom x %f y %f z %f igx %i igy %i igz %i comm->coord2proc %i\n", x[i][0], x[i][1], x[i][2], igx, igy, igz, mproclist[nsendatom]);
+        fflush(fp);
+#endif
         if (mproclist[nsendatom] == me) i++;
         else {
           if (nsend > maxsend) grow_send(nsend,1);
@@ -226,10 +261,15 @@ void Irregular::migrate_atoms(int sortflag, int preassign, int *procassign)
 
 int Irregular::migrate_check()
 {
-  // migrate required if comm layout is tiled
+#ifdef DEBUG_COMM_STAGGERED
+  fprintf(fp, "Hello from migrate_check\n");
+  fflush(fp);
+#endif
+  // migrate required if comm layout is tiled or staggered
   // cannot use myloc[] logic below
 
   if (comm->layout == Comm::LAYOUT_TILED) return 1;
+  if (comm->layout == Comm::LAYOUT_STAGGERED) return 1;
 
   // subbox bounds for orthogonal or triclinic box
 
@@ -305,6 +345,10 @@ int Irregular::migrate_check()
 
 int Irregular::create_atom(int n, int *sizes, int *proclist, int sortflag)
 {
+#ifdef DEBUG_COMM_STAGGERED
+  fprintf(fp, "Hello from create_atom\n");
+  fflush(fp);
+#endif
   int i;
 
   // setup for collective comm
@@ -510,6 +554,10 @@ int compare_standalone(const int i, const int j, void *ptr)
 
 void Irregular::exchange_atom(double *sendbuf, int *sizes, double *recvbuf)
 {
+#ifdef DEBUG_COMM_STAGGERED
+  fprintf(fp, "Hello from exchange_atom\n");
+  fflush(fp);
+#endif
   int i,m,n,count;
   bigint offset;
 
@@ -520,6 +568,10 @@ void Irregular::exchange_atom(double *sendbuf, int *sizes, double *recvbuf)
     MPI_Irecv(&recvbuf[offset],length_recv[irecv],MPI_DOUBLE,
               proc_recv[irecv],0,world,&request[irecv]);
     offset += length_recv[irecv];
+#ifdef DEBUG_COMM_STAGGERED
+    fprintf(fp, "Irecv count %i from proc %i\n", length_recv[irecv], proc_recv[irecv]);
+    fflush(fp);
+#endif
   }
 
   // reallocate buf for largest send if necessary
@@ -543,12 +595,24 @@ void Irregular::exchange_atom(double *sendbuf, int *sizes, double *recvbuf)
       memcpy(&dbuf[offset],&sendbuf[offset_send[m]],sizes[m]*sizeof(double));
       offset += sizes[m];
     }
+#ifdef DEBUG_COMM_STAGGERED
+    fprintf(fp, "Send count %i from proc %i\n", length_send[isend], proc_send[isend]);
+    fflush(fp);
+#endif
     MPI_Send(dbuf,length_send[isend],MPI_DOUBLE,proc_send[isend],0,world);
   }
 
   // wait on all incoming messages
 
+#ifdef DEBUG_COMM_STAGGERED
+  fprintf(fp, "start Waitall\n");
+  fflush(fp);
+#endif
   if (nrecv_proc) MPI_Waitall(nrecv_proc,request,status);
+#ifdef DEBUG_COMM_STAGGERED
+  fprintf(fp, "end Waitall\n");
+  fflush(fp);
+#endif
 }
 
 /* ----------------------------------------------------------------------
@@ -557,6 +621,10 @@ void Irregular::exchange_atom(double *sendbuf, int *sizes, double *recvbuf)
 
 void Irregular::destroy_atom()
 {
+#ifdef DEBUG_COMM_STAGGERED
+  fprintf(fp, "Hello from destroy_atom\n");
+  fflush(fp);
+#endif
   delete [] proc_send;
   delete [] length_send;
   delete [] num_send;
@@ -578,6 +646,10 @@ void Irregular::destroy_atom()
 
 int Irregular::create_data(int n, int *proclist, int sortflag)
 {
+#ifdef DEBUG_COMM_STAGGERED
+  fprintf(fp, "Hello from create_data\n");
+  fflush(fp);
+#endif
   int i,m;
 
   // setup for collective comm
@@ -751,6 +823,10 @@ int Irregular::create_data(int n, int *proclist, int sortflag)
 
 int Irregular::create_data_grouped(int n, int *procs, int sortflag)
 {
+#ifdef DEBUG_COMM_STAGGERED
+  fprintf(fp, "Hello from create_data_grouped\n");
+  fflush(fp);
+#endif
   int i,j,k,m;
 
   // setup for collective comm
@@ -923,6 +999,10 @@ int Irregular::create_data_grouped(int n, int *procs, int sortflag)
 
 void Irregular::exchange_data(char *sendbuf, int nbytes, char *recvbuf)
 {
+#ifdef DEBUG_COMM_STAGGERED
+  fprintf(fp, "Hello from exchange_data\n");
+  fflush(fp);
+#endif
   int i,n,count;
   bigint m;       // these 2 lines enable send/recv buf to be larger than 2 GB
   char *dest;
@@ -980,6 +1060,10 @@ void Irregular::exchange_data(char *sendbuf, int nbytes, char *recvbuf)
 
 void Irregular::destroy_data()
 {
+#ifdef DEBUG_COMM_STAGGERED
+  fprintf(fp, "Hello from destroy_data\n");
+  fflush(fp);
+#endif
   delete [] proc_send;
   delete [] num_send;
   delete [] index_send;
@@ -997,6 +1081,10 @@ void Irregular::destroy_data()
 
 void Irregular::init_exchange()
 {
+#ifdef DEBUG_COMM_STAGGERED
+  fprintf(fp, "Hello from init_exchange\n");
+  fflush(fp);
+#endif
   int maxexchange_fix = 0;
   for (auto &ifix : modify->get_fix_list())
     maxexchange_fix = MAX(maxexchange_fix, ifix->maxexchange);
@@ -1014,6 +1102,10 @@ void Irregular::init_exchange()
 
 void Irregular::grow_send(int n, int flag)
 {
+#ifdef DEBUG_COMM_STAGGERED
+  fprintf(fp, "Hello from grow_send\n");
+  fflush(fp);
+#endif
   if (flag == 0) {
     maxsend = static_cast<int> (BUFFACTOR * n);
     memory->destroy(buf_send);
@@ -1034,6 +1126,10 @@ void Irregular::grow_send(int n, int flag)
 
 void Irregular::grow_recv(int n)
 {
+#ifdef DEBUG_COMM_STAGGERED
+  fprintf(fp, "Hello from grow_recv\n");
+  fflush(fp);
+#endif
   maxrecv = static_cast<int> (BUFFACTOR * n);
   memory->destroy(buf_recv);
   memory->create(buf_recv,maxrecv,"comm:buf_recv");
@@ -1045,6 +1141,10 @@ void Irregular::grow_recv(int n)
 
 double Irregular::memory_usage()
 {
+#ifdef DEBUG_COMM_STAGGERED
+  fprintf(fp, "Hello from memory_usage\n");
+  fflush(fp);
+#endif
   double bytes = 0;
   bytes += (double)maxsend*sizeof(double);   // buf_send
   bytes += (double)maxrecv*sizeof(double);   // buf_recv

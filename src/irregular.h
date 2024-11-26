@@ -93,6 +93,10 @@ class Irregular : protected Pointers {
   void init_exchange();        // reset bufxtra
   void grow_send(int, int);    // reallocate send buffer
   void grow_recv(int);         // free/allocate recv buffer
+
+#ifdef DEBUG_COMM_STAGGERED
+  FILE * fp;
+#endif
 };
 
 }    // namespace LAMMPS_NS
