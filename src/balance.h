@@ -41,6 +41,7 @@ class Balance : public Command {
   void init_imbalance(int);
   void set_weights();
   double imbalance_factor(double &);
+  double imbalance_factor_and_efficiency(double &, double &);
   void shift_setup(const char *, int, double);
   int shift();
   int *bisection();

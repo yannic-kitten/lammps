@@ -574,6 +574,39 @@ double Balance::imbalance_factor(double &maxcost)
 }
 
 /* ----------------------------------------------------------------------
+   calculate imbalance factor based on particle count or particle weights
+   return max = max load per proc
+   return imbalance = max load per proc / ave load per proc
+   set maxcost and efficiency
+------------------------------------------------------------------------- */
+
+double Balance::imbalance_factor_and_efficiency(double &maxcost, double &efficiency)
+{
+  double mycost,totalcost,mincost;
+
+  if (wtflag) {
+    weight = fixstore->vstore;
+    int nlocal = atom->nlocal;
+
+    mycost = 0.0;
+    for (int i = 0; i < nlocal; i++) mycost += weight[i];
+
+  } else mycost = atom->nlocal;
+
+  MPI_Allreduce(&mycost,&mincost,1,MPI_DOUBLE,MPI_MIN,world);
+  MPI_Allreduce(&mycost,&maxcost,1,MPI_DOUBLE,MPI_MAX,world);
+  MPI_Allreduce(&mycost,&totalcost,1,MPI_DOUBLE,MPI_SUM,world);
+
+  double imbalance = 1.0;
+  efficiency = imbalance;
+  if (maxcost > 0.0) {
+    imbalance = maxcost / (totalcost / comm->nprocs);
+    efficiency -= (maxcost - mincost) / (maxcost + mincost);
+  }
+  return imbalance;
+}
+
+/* ----------------------------------------------------------------------
    perform balancing via RCB class
    return list of procs to send my atoms to
 ------------------------------------------------------------------------- */
