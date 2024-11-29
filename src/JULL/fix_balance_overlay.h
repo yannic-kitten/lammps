@@ -122,7 +122,9 @@ class FixBalanceOverlay : public Fix {
 
   class FixStoreAtom *fixstore;     // per-atom weights for histogram stored in FixStore
   class Irregular *irregular;       // for atom migration after boudary update
+  // TODO: remove (YK)
   class JullTimer *jull_timer;      // wrapper for lammps timers
+  double *weight;                  // ptr to FixStore weight vector
 
   // functions
 

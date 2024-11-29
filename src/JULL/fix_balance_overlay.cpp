@@ -241,8 +241,7 @@ FixBalanceOverlay::FixBalanceOverlay(LAMMPS *lmp, int narg, char **arg) :
   next_file_write = -1;
 
   reduce_outvec_flag = false;
-  for (int i=0; i<3; i++) outvec_timer[i] = -1;
-
+  for (int i = 0; i < 3; ++i) outvec_timer[i] = -1;
 }
 
 /**
@@ -882,19 +881,12 @@ void FixBalanceOverlay::set_weights()
   fprintf(fp, "Hello from set_weights\n");
   fflush(fp);
 #endif
-  if (! wtflag) return;
-
-  double work_atom;
-  double *weight = fixstore->vstore;
-  int *mask = atom->mask;
+  if (!wtflag) return;
+  weight = fixstore->vstore;
 
   int nlocal = atom->nlocal;
-  if (workstyle == TIME) {
-    // assume a homogeneous time per particle
-    work_atom = work / nlocal;
-    for (int i = 0; i < nlocal; i++)
-      weight[i] = work_atom;
-  }
+  for (int i = 0; i < nlocal; i++) weight[i] = 1.0;
+  for (int n = 0; n < nimbalance; n++) imbalances[n]->compute(weight);
 
   // weights need to migrate with atoms
   fixstore->disable = 0;
