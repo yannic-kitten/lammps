@@ -27,23 +27,24 @@ FixStyle(balance/overlay,FixBalanceOverlay);
 
 namespace LAMMPS_NS {
 
-/**
- *  Small wrapper for the lammps timers to get time intervals.
- */
 
-class JullTimer : protected Pointers {
-  public:
-    JullTimer(class LAMMPS *);
-    void init();
-    void print_times(int);
-    double get_timer(int);
-    double get_work();
-  private:
-    double time[4];             // value of lammps timers
-    double time_interval[4];    // time interval between two calls
-
-    void set_time();
-};
+// TODO: remove class
+///**
+// *  Small wrapper for the lammps timers to get time intervals.
+// */
+//class JullTimer : protected Pointers {
+//  public:
+//    JullTimer(class LAMMPS *);
+//    void init();
+//    void print_times(int);
+//    double get_timer(int);
+//    double get_work();
+//  private:
+//    double time[4];             // value of lammps timers
+//    double time_interval[4];    // time interval between two calls
+//
+//    void set_time();
+//};
 
 /**
  *  Fix for dynamic load balancing with the ALL-library.
@@ -76,11 +77,10 @@ class FixBalanceOverlay : public Fix {
 
   int nevery;                   // call load balancer after nevery steps
   int gridstyle;                // STAGGERED, TENSOR, UNKNOWN_GRID
-  int workstyle;                // NATOMS,TIME,UNKNOWN_WORK,RANK
+  // TODO: workstyle not required: remove
+  //int workstyle;                // NATOMS,TIME,UNKNOWN_WORK,RANK
   int wtflag;                   // use per atom weights 1, otherwise 0
-  ///> @todo: add attributes    // YK
-  //int sortflag;               // 1 for sorting comm messages                              // YK
-  //int reportonly;             // 1 if skipping rebalancing and only computing imbalance   // YK
+  int varflag;                  // 1 if weight style var(iable) is used
   double bw;                    // bin width for histogram
   double local_threshold;       // imbalance threshold for tensor and staggered
   double global_threshold;      // imbalance threshold for histogram
@@ -123,7 +123,10 @@ class FixBalanceOverlay : public Fix {
   class FixStoreAtom *fixstore;     // per-atom weights for histogram stored in FixStore
   class Irregular *irregular;       // for atom migration after boudary update
   // TODO: remove (YK)
-  class JullTimer *jull_timer;      // wrapper for lammps timers
+  //class JullTimer *jull_timer;      // wrapper for lammps timers
+
+  int nimbalance;                  // number of user-specified weight styles
+  class Imbalance **imbalances;    // list of Imb classes, one per weight style
   double *weight;                  // ptr to FixStore weight vector
 
   // functions
@@ -137,6 +140,7 @@ class FixBalanceOverlay : public Fix {
 
   void balance();
   void calc_imbalance();
+  void init_imbalance(int);
   void set_weights();
   void unset_weights();
   void balance_local();

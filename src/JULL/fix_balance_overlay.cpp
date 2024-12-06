@@ -26,6 +26,12 @@
 #include "error.h"
 #include "force.h"
 #include "group.h"
+#include "imbalance.h"
+#include "imbalance_group.h"
+#include "imbalance_neigh.h"
+#include "imbalance_store.h"
+#include "imbalance_time.h"
+#include "imbalance_var.h"
 #include "irregular.h"
 #include "kspace.h"
 #include "modify.h"
@@ -40,8 +46,9 @@
 using namespace LAMMPS_NS;
 using namespace FixConst;
 
+// TODO: workstyle not requred: remove enum
 enum { TENSOR, STAGGERED, UNKNOWN_GRID };
-enum { NATOMS, TIME, UNKNOWN_WORK, RANK };
+//enum { NATOMS, TIME, UNKNOWN_WORK, RANK };
 enum { TENSOR_MAX, TENSOR_CLASSIC, NONE };
 
 // clang-format off
@@ -63,11 +70,27 @@ enum { TENSOR_MAX, TENSOR_CLASSIC, NONE };
  *                max = use TENSOR_MAX method of ALL
  *                classic = use TENSOR method of ALL
  *
+ *      TODO: ommit once it is gone
  *      load style = define used model for the load
  *          style = time or natoms or rank
  *              time = use measured force-calculation times for balancing
  *              natoms = use number of particles per processor for balancing
  *              rank = use rank as weight per particle (for debugging)
+ *
+ *      weight style args = use weighted particle counts for the balancing
+ *          style = group or neigh or time or var or store
+ *              group args = Ngroup group1 weight1 group2 weight2 ...
+ *                Ngroup = number of groups with assigned weights
+ *                group1, group2, ... = group IDs
+ *                weight1, weight2, ...   = corresponding weight factors
+ *              neigh factor = compute weight based on number of neighbors
+ *                factor = scaling factor (> 0)
+ *              time factor = compute weight based on time spend computing
+ *                factor = scaling factor (> 0)
+ *              var name = take weight from atom-style variable
+ *                name = name of the atom-style variable
+ *              store name = store weight in custom atom property defined by fix property/atom command
+ *                name = atom property name (without d_ prefix)
  *
  *  At least one of the following keyword/arg pairs is required.
  *  Only one (or none) load balancer is used in a load balancing step.
@@ -100,6 +123,7 @@ FixBalanceOverlay::FixBalanceOverlay(LAMMPS *lmp, int narg, char **arg) :
 #endif
   if (narg < 6) error->all(FLERR,"Illegal fix balance/overlay command");
 
+  imbalances = nullptr;
   fixstore = nullptr;
 
   box_change = BOX_CHANGE_DOMAIN;
@@ -113,12 +137,13 @@ FixBalanceOverlay::FixBalanceOverlay(LAMMPS *lmp, int narg, char **arg) :
 
   if (domain->triclinic) error->all(FLERR,"triclinic domains are not supported by ALL");
 
-  jull_timer = nullptr;
+  // TODO: remove once julltimer is gone
+  //jull_timer = nullptr;
 
   // set defaul values
 
   gridstyle = UNKNOWN_GRID;
-  workstyle = UNKNOWN_WORK;
+  //workstyle = UNKNOWN_WORK;
   int tensorstyle = NONE;
   nevery = -1;
   bw = -1;
@@ -131,9 +156,18 @@ FixBalanceOverlay::FixBalanceOverlay(LAMMPS *lmp, int narg, char **arg) :
   wtflag = 0;
   fh = MPI_FILE_NULL;
   nevery_file_write = -1;
+  varflag = 0;
+
+  // count max number of weight settings
+
+  nimbalance = 0;
+  for (int i = 3; i < narg; i++)
+    if (strcmp(arg[i],"weight") == 0) nimbalance++;
+  if (nimbalance) imbalances = new Imbalance*[nimbalance];
+  nimbalance = 0;
 
   // parse arguments
-  for (int iarg=3; iarg<narg; iarg++) {
+  for (int iarg = 3; iarg < narg; ++iarg) {
     if (strcmp(arg[iarg],"every") == 0) {
       if (iarg+1 >= narg) error->all(FLERR, "balance/overlay: every requires an integer");
       nevery = utils::inumeric(FLERR,arg[iarg+1],false,lmp);
@@ -151,6 +185,36 @@ FixBalanceOverlay::FixBalanceOverlay(LAMMPS *lmp, int narg, char **arg) :
         iarg++;
       } else error->all(FLERR, "balance/overlay: unknown grid argument {}", arg[iarg+1]);
       iarg++;
+    } else if (strcmp(arg[iarg],"weight") == 0) {
+      wtflag = 1;
+      Imbalance *imb;
+      int nopt = 0;
+      if (strcmp(arg[iarg+1],"group") == 0) {
+        imb = new ImbalanceGroup(lmp);
+        nopt = imb->options(narg-iarg,arg+iarg+2);
+        imbalances[nimbalance++] = imb;
+      } else if (strcmp(arg[iarg+1],"time") == 0) {
+        imb = new ImbalanceTime(lmp);
+        nopt = imb->options(narg-iarg,arg+iarg+2);
+        imbalances[nimbalance++] = imb;
+      } else if (strcmp(arg[iarg+1],"neigh") == 0) {
+        imb = new ImbalanceNeigh(lmp);
+        nopt = imb->options(narg-iarg,arg+iarg+2);
+        imbalances[nimbalance++] = imb;
+      } else if (strcmp(arg[iarg+1],"var") == 0) {
+        varflag = 1;
+        imb = new ImbalanceVar(lmp);
+        nopt = imb->options(narg-iarg,arg+iarg+2);
+        imbalances[nimbalance++] = imb;
+      } else if (strcmp(arg[iarg+1],"store") == 0) {
+        imb = new ImbalanceStore(lmp);
+        nopt = imb->options(narg-iarg,arg+iarg+2);
+        imbalances[nimbalance++] = imb;
+      } else {
+        error->all(FLERR,"Unknown fix balance/overlay weight method: {}", arg[iarg+1]);
+      }
+      iarg += 1+nopt;
+    /*  // TODO: remove load option
     } else if (strcmp(arg[iarg],"load") == 0) {
       if (iarg+1 >= narg) error->all(FLERR, "balance/overlay: load requires one argument");
       iarg++;
@@ -163,6 +227,7 @@ FixBalanceOverlay::FixBalanceOverlay(LAMMPS *lmp, int narg, char **arg) :
       } else if (strcmp(arg[iarg],"rank") == 0) {
         workstyle = RANK;
       }
+    */
     } else if (strcmp(arg[iarg],"verbose") == 0) {
       verbose = true;
     } else if (strcmp(arg[iarg],"global") == 0) {
@@ -186,15 +251,15 @@ FixBalanceOverlay::FixBalanceOverlay(LAMMPS *lmp, int narg, char **arg) :
       nevery_file_write = utils::inumeric(FLERR,arg[iarg+2],false,lmp);
       if (nevery_file_write < 1) error->all(FLERR, "balance/overlay: nevery_file_write < 1");
       iarg += 2;
-    } else error->all(FLERR,"balance/overlay: unknown argument {}", arg[iarg]);
+    } else error->all(FLERR,"balance/overlay: unknown argument '{}'", arg[iarg]);
   }
 
   // check arguments
   if (nevery < 1) error->all(FLERR,"balance/overlay: nevery > 0 required");
   if (gridstyle == UNKNOWN_GRID) error->all(FLERR, "balance/overlay: grid style required");
-  if (workstyle == UNKNOWN_WORK) error->all(FLERR, "balance/overlay: work style required");
+  //if (workstyle == UNKNOWN_WORK) error->all(FLERR, "balance/overlay: work style required");
   if (use_global_lb) {
-    if (workstyle == TIME) wtflag = 1;
+    //if (workstyle == TIME) wtflag = 1;
     if (gridstyle != STAGGERED) error->all(FLERR, "balance/overlay: histogram requires staggered grid");
     if (bw <= 0) error->all(FLERR, "balance/overlay: bw not positive");
   }
@@ -254,13 +319,17 @@ FixBalanceOverlay::~FixBalanceOverlay()
   if (jull_local) delete jull_local;
   if (jull_global) delete jull_global;
   delete irregular;
-  if (jull_timer) delete jull_timer;
+  // TODO: remove
+  //if (jull_timer) delete jull_timer;
 
   if (fh != MPI_FILE_NULL) MPI_File_close(&fh);
 
   if (x_masters != MPI_COMM_NULL) MPI_Comm_free(&x_masters);
   if (y_masters != MPI_COMM_NULL) MPI_Comm_free(&y_masters);
   if (z_masters != MPI_COMM_NULL) MPI_Comm_free(&z_masters);
+
+  for (int i = 0; i < nimbalance; i++) delete imbalances[i];
+  delete[] imbalances;
 
   // check nfix in case all fixes have already been deleted
   if (fixstore && modify->nfix) modify->delete_fix(fixstore->id);
@@ -372,7 +441,9 @@ void FixBalanceOverlay::init()
     jull_global->setup();
   }
 
-  if (jull_timer) jull_timer->init();
+  // TODO: remove
+  //if (jull_timer) jull_timer->init();
+  init_imbalance(1);
 
   // create communicators for tensor
   if (gridstyle == TENSOR) {
@@ -403,9 +474,9 @@ void FixBalanceOverlay::init()
     if (gridstyle == STAGGERED) utils::logmesg(lmp, "\tgrid: staggered\n");
     else if (gridstyle == TENSOR) utils::logmesg(lmp, "\tgrid: tensor\n");
     utils::logmesg(lmp, "\tnumber of processors: {} x {} y {} z\n", procgrid_vec[0], procgrid_vec[1], procgrid_vec[2]);
-    if (workstyle == NATOMS) utils::logmesg(lmp, "\twork: number of atoms\n");
-    else if (workstyle == TIME) utils::logmesg(lmp, "\twork: time\n");
-    else if (workstyle == RANK) utils::logmesg(lmp, "\twork: rank\n");
+    //if (workstyle == NATOMS) utils::logmesg(lmp, "\twork: number of atoms\n");
+    //else if (workstyle == TIME) utils::logmesg(lmp, "\twork: time\n");
+    //else if (workstyle == RANK) utils::logmesg(lmp, "\twork: rank\n");
     if (use_global_lb) {
       utils::logmesg(lmp, "\tglobal load balancing ...\n");
       utils::logmesg(lmp, "\t\ttrigger threshold: {}\n", global_threshold);
@@ -474,6 +545,8 @@ void FixBalanceOverlay::balance()
 
   double timer_lb_start = platform::walltime();
 
+  set_weights();
+
   work = get_work();
 
   calc_imbalance();
@@ -487,6 +560,7 @@ void FixBalanceOverlay::balance()
     if (verbose && comm->me == 0) utils::logmesg(lmp, "balance/overlay: {} no balance required\n", imbalance);
     jull_last = nullptr;
   }
+  unset_weights();
 
   timer_lb = platform::walltime() - timer_lb_start;
   reduce_outvec_flag = true;
@@ -526,10 +600,10 @@ void FixBalanceOverlay::balance_local()
     buffer[1] = 2;
     buffer[2] = work;
     buffer[3] = -1;
-    buffer[4] = jull_timer ? jull_timer->get_timer(0) : -1;
-    buffer[5] = jull_timer ? jull_timer->get_timer(1) : -1;
-    buffer[6] = jull_timer ? jull_timer->get_timer(2) : -1;
-    buffer[7] = jull_timer ? jull_timer->get_timer(3) : -1;
+    buffer[4] = -1;
+    buffer[5] = -1;
+    buffer[6] = -1;
+    buffer[7] = -1;
     buffer[8] = atom->nlocal;
     buffer[9] = comm->layout == Comm::LAYOUT_STAGGERED ? comm->mysplit[0][0] : -1;
     buffer[10] = comm->layout == Comm::LAYOUT_STAGGERED ? comm->mysplit[0][1] : -1;
@@ -620,7 +694,8 @@ void FixBalanceOverlay::balance_global()
   // processors may not have complex/simple particles yet, but get some during layer-balancing
   // -> calculate global average
   // only once since timers are evaluated
-  set_weights();
+  // TODO: remove
+  //set_weights();
 
 #ifdef DEBUG_COMM_STAGGERED
   fprintf(fp, "irregular->migrate_atoms\n");
@@ -670,7 +745,8 @@ void FixBalanceOverlay::balance_global()
 #endif
     irregular->migrate_atoms();
   }
-  unset_weights();
+  // TODO: remove
+  //unset_weights();
 
   // @todo: remove commented code if alternative works!
   //if (kspace_flag) force->kspace->setup_grid();
@@ -755,11 +831,20 @@ double FixBalanceOverlay::get_work()
   fflush(fp);
 #endif
 
+  // DONE: rewrite based on imbalances
   double work = 0;
 
-  if (workstyle == TIME) work = jull_timer->get_work() + 0.1;
-  else if (workstyle == NATOMS) work = atom->nlocal;
-  else if (workstyle == RANK) work = comm->me;
+  if (wtflag) {
+    weight = fixstore->vstore;
+    int nlocal = atom->nlocal;
+
+    work = 0.0;
+    for (int i = 0; i < nlocal; i++) work += weight[i];
+
+  } else work = atom->nlocal;
+  //if (workstyle == TIME) work = jull_timer->get_work() + 0.1;
+  //else if (workstyle == NATOMS) work = atom->nlocal;
+  //else if (workstyle == RANK) work = comm->me;
   //printf("proc %i natoms %i work %f\n", comm->me, atom->nlocal, work);
 
 #ifdef DEBUG_COMM_STAGGERED
@@ -872,6 +957,17 @@ void FixBalanceOverlay::calc_imbalance()
 }
 
 /**
+ * invoke init() for each Imbalance class
+ * flag = 0 for call from Balance, 1 for call from FixBalance
+ */
+
+void FixBalanceOverlay::init_imbalance(int flag = 1)
+{
+  if (!wtflag) return;
+  for (int n = 0; n < nimbalance; n++) imbalances[n]->init(flag);
+}
+
+/**
   * set weight for each particle
   */
 
@@ -951,13 +1047,13 @@ std::vector<double> FixBalanceOverlay::calc_histogram(int dimension)
   // -> set work before iterating over atoms
   double work_atom = 0;
   double *weight = nullptr;
-  if (workstyle == NATOMS) {
-    work_atom = 1;
-  } else if (workstyle == RANK) {
-    work_atom = comm->me;
-  } else {
+  //if (workstyle == NATOMS) {
+  //  work_atom = 1;
+  //} else if (workstyle == RANK) {
+  //  work_atom = comm->me;
+  //} else {
     weight = fixstore->vstore;
-  }
+  //}
 
   for (int i=0; i<atom->nlocal; i++) {
 
@@ -1018,10 +1114,10 @@ std::vector<double> FixBalanceOverlay::calc_histogram(int dimension)
     buffer[1] = dimension;
     buffer[2] = work;
     buffer[3] = work_sum_histogram;
-    buffer[4] = jull_timer ? jull_timer->get_timer(0) : -1;
-    buffer[5] = jull_timer ? jull_timer->get_timer(1) : -1;
-    buffer[6] = jull_timer ? jull_timer->get_timer(2) : -1;
-    buffer[7] = jull_timer ? jull_timer->get_timer(3) : -1;
+    buffer[4] = -1;
+    buffer[5] = -1;
+    buffer[6] = -1;
+    buffer[7] = -1;
     buffer[8] = atom->nlocal;
     buffer[9] = comm->layout == Comm::LAYOUT_STAGGERED ? comm->mysplit[0][0] : -1;
     buffer[10] = comm->layout == Comm::LAYOUT_STAGGERED ? comm->mysplit[0][1] : -1;
@@ -1200,81 +1296,81 @@ void FixBalanceOverlay::print_domains()
 
 }
 
-/**
- *  Set everything to zero.
- *  @param[in] lmp lammps to get the Pointers class
- */
-
-JullTimer::JullTimer(LAMMPS *lmp) : Pointers(lmp) {
-  for (int i=0; i<4; i++) {
-    time[i] = 0;
-    time_interval[i] = 0;
-  }
-}
-
-/**
- *  Reset times to zero.
- */
-
-void JullTimer::init() {
-  // do not use set_time();
-  // lammps resets the timers to zero, but the timers are not zero at timer initialisation time
-  for (int i=0; i<4; i++) {
-    time[i] = 0;
-    time_interval[i] = 0;
-  }
-}
-
-/**
- *  Save values of lammps timers.
- *  @note sets time
- */
-
-void JullTimer::set_time() {
-  time[0] = timer->get_wall(Timer::PAIR);
-  time[1] = timer->get_wall(Timer::NEIGH);
-  time[2] = timer->get_wall(Timer::BOND);
-  time[3] = timer->get_wall(Timer::KSPACE);
-}
-
-/**
- *  Get time work since last call.
- *  @note sets time and time_interval
- *  @return work
- */
-
-double JullTimer::get_work() {
-  double work = 0;
-  // store old times
-  for (int i=0; i<4; i++) time_interval[i] = - time[i];
-  set_time();
-  // calculate differences to new times
-  for (int i=0; i<4; i++) {
-    time_interval[i] += time[i];
-    work += time_interval[i];
-  }
-  // add constant time to prevent balancing with numerically zero
-  // e.g. (for few atoms per processor and balancing every step)
-  return work /*+ 0.1*/;
-}
-
-/**
- *  Get requested time_interval.
- *  @note The range of the index is not checked.
- *  @param i requested array index
- *  @return time_interval
- */
-
-double JullTimer::get_timer(int i) {
-  if (i<4) return time_interval[i];
-  else return -1;
-}
-
-/**
- *  Write time array to standard output.
- *  @param[in] rank
- */
-
-void JullTimer::print_times(int rank) {
-  printf("proc %i time %f %f %f %f %f\n", rank, time[0], time[1], time[2], time[3], time[4]);
-}
+///**
+// *  Set everything to zero.
+// *  @param[in] lmp lammps to get the Pointers class
+// */
+//
+//JullTimer::JullTimer(LAMMPS *lmp) : Pointers(lmp) {
+//  for (int i=0; i<4; i++) {
+//    time[i] = 0;
+//    time_interval[i] = 0;
+//  }
+//}
+//
+///**
+// *  Reset times to zero.
+// */
+//
+//void JullTimer::init() {
+//  // do not use set_time();
+//  // lammps resets the timers to zero, but the timers are not zero at timer initialisation time
+//  for (int i=0; i<4; i++) {
+//    time[i] = 0;
+//    time_interval[i] = 0;
+//  }
+//}
+//
+///**
+// *  Save values of lammps timers.
+// *  @note sets time
+// */
+//
+//void JullTimer::set_time() {
+//  time[0] = timer->get_wall(Timer::PAIR);
+//  time[1] = timer->get_wall(Timer::NEIGH);
+//  time[2] = timer->get_wall(Timer::BOND);
+//  time[3] = timer->get_wall(Timer::KSPACE);
+//}
+//
+///**
+// *  Get time work since last call.
+// *  @note sets time and time_interval
+// *  @return work
+// */
+//
+//double JullTimer::get_work() {
+//  double work = 0;
+//  // store old times
+//  for (int i=0; i<4; i++) time_interval[i] = - time[i];
+//  set_time();
+//  // calculate differences to new times
+//  for (int i=0; i<4; i++) {
+//    time_interval[i] += time[i];
+//    work += time_interval[i];
+//  }
+//  // add constant time to prevent balancing with numerically zero
+//  // e.g. (for few atoms per processor and balancing every step)
+//  return work /*+ 0.1*/;
+//}
+//
+///**
+// *  Get requested time_interval.
+// *  @note The range of the index is not checked.
+// *  @param i requested array index
+// *  @return time_interval
+// */
+//
+//double JullTimer::get_timer(int i) {
+//  if (i<4) return time_interval[i];
+//  else return -1;
+//}
+//
+///**
+// *  Write time array to standard output.
+// *  @param[in] rank
+// */
+//
+//void JullTimer::print_times(int rank) {
+//  printf("proc %i time %f %f %f %f %f\n", rank, time[0], time[1], time[2], time[3], time[4]);
+//}
