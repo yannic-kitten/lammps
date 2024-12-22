@@ -86,6 +86,7 @@ PACKAGE = \
 	h5md \
 	intel \
 	interlayer \
+	jull \
 	kim \
 	kokkos \
 	latboltz \
@@ -223,6 +224,7 @@ PACKLIB = \
 	awpmd \
 	colvars \
 	h5md \
+	jull \
 	ml-hdnnp \
 	latboltz \
 	lepton \
@@ -247,6 +249,7 @@ PACKINT = atc awpmd colvars electrode gpu kokkos lepton ml-pod poems
 PACKEXT = \
 	adios \
 	h5md \
+	jull \
 	kim \
 	machdyn \
 	ml-hdnnp \
