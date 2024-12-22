@@ -1045,14 +1045,14 @@ std::vector<double> FixBalanceOverlay::calc_histogram(int dimension)
 
   // the work per atom is constant
   // -> set work before iterating over atoms
-  double work_atom = 0;
+  double work_atom = 1.0;
   double *weight = nullptr;
   //if (workstyle == NATOMS) {
   //  work_atom = 1;
   //} else if (workstyle == RANK) {
   //  work_atom = comm->me;
   //} else {
-    weight = fixstore->vstore;
+    if (wtflag) weight = fixstore->vstore;
   //}
 
   for (int i=0; i<atom->nlocal; i++) {
