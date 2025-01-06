@@ -1,0 +1,3 @@
+jull_SYSINC = -I../../lib/jull/include
+jull_SYSLIB = -L../../lib/jull/lib -lALL
+jull_SYSPATH =
