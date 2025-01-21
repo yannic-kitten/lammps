@@ -43,6 +43,8 @@ static constexpr int DELTA_PROCS = 16;
 //           for Comm is run and thus creating a shallow copy of "oldcomm".
 //           The call to Comm::copy_arrays() then converts the shallow copy
 //           into a deep copy of the class with the new layout.
+//           @todo search 'comm->layout' and adapt for LAYOUT_STAGGERED
+//           @bug search 'comm->layout' and adapt for LAYOUT_STAGGERED
 
 CommStaggered::CommStaggered(LAMMPS *lmp, Comm *oldcomm, char *arg) : CommTiled(lmp,oldcomm)
 {
@@ -67,6 +69,7 @@ CommStaggered::CommStaggered(LAMMPS *lmp, Comm *oldcomm, char *arg) : CommTiled(
     spatial2staggered[staggered2spatial[i]] = i;
   }
 
+  ///> @todo adapt copy_arrays
   init_buffers_staggered();
 
 #ifdef DEBUG_COMM_STAGGERED
@@ -348,10 +351,12 @@ void CommStaggered::setup()
           lo2[idim] = lo1[idim] + prd[idim];
           hi2[idim] = boxhi[idim];
           if (sublo[idim] == boxlo[idim]) one = 0;
+          //else if (layout == Comm::LAYOUT_STAGGERED && staggered_myloc[spatial2staggered[idim]] == 0) one = 0; ///>@todo use? rather workaround than robust fix
         } else {
           lo2[idim] = boxlo[idim];
           hi2[idim] = hi1[idim] - prd[idim];
           if (subhi[idim] == boxhi[idim]) one = 0;
+          //else if (layout == Comm::LAYOUT_STAGGERED && staggered_myloc[spatial2staggered[idim]] == staggered_procgrid[spatial2staggered[idim]] -1) one = 0; ///>@todo use ? more workaround than robust fix
         }
       }
 
@@ -799,10 +804,10 @@ void CommStaggered::exchange()
   // only need to reset if a fix can dynamically add to size of single atom
 
   if (maxexchange_fix_dynamic) {
-    ///> @todo: remove comments
-    // int bufextra_old = bufextra;
-    // init_exchange();
-    // if (bufextra > bufextra_old) grow_send(maxsend+bufextra,2);
+    // TODO: remove commented code
+    //int bufextra_old = bufextra;
+    //init_exchange();
+    //if (bufextra > bufextra_old) grow_send(maxsend+bufextra,2);
     init_exchange();
     if (bufextra > bufextra_max) {
       grow_send(maxsend+bufextra,2);
