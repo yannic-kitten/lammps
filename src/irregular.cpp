@@ -269,6 +269,7 @@ int Irregular::migrate_check()
   // cannot use myloc[] logic below
 
   if (comm->layout == Comm::LAYOUT_TILED) return 1;
+  ///> @todo implement migrate_check for staggered?
   if (comm->layout == Comm::LAYOUT_STAGGERED) return 1;
 
   // subbox bounds for orthogonal or triclinic box
