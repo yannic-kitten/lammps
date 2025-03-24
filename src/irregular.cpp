@@ -226,10 +226,11 @@ void Irregular::migrate_atoms(int sortflag, int preassign, int *procassign)
 
 int Irregular::migrate_check()
 {
-  // migrate required if comm layout is tiled
+  // migrate required if comm layout is tiled or staggered
   // cannot use myloc[] logic below
 
   if (comm->layout == Comm::LAYOUT_TILED) return 1;
+  if (comm->layout == Comm::LAYOUT_STAGGERED) return 1;
 
   // subbox bounds for orthogonal or triclinic box
 

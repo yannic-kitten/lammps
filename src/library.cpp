@@ -1284,9 +1284,9 @@ internally by the :doc:`Fortran interface <Fortran>` and are not likely to be us
    * - world_size
      - Number of ranks on LAMMPS' world communicator (aka comm->nprocs)
    * - comm_style
-     - communication style (0 = BRICK, 1 = TILED)
+     - communication style (0 = BRICK, 1 = TILED, 2 = STAGGERED)
    * - comm_layout
-     - communication layout (0 = LAYOUT_UNIFORM, 1 = LAYOUT_NONUNIFORM, 2 = LAYOUT_TILED)
+     - communication layout (0 = LAYOUT_UNIFORM, 1 = LAYOUT_NONUNIFORM, 2 = LAYOUT_TILED, 3 = LAYOUT_STAGGERED)
    * - comm_mode
      - communication mode (0 = SINGLE, 1 = MULTI, 2 = MULTIOLD)
    * - ghost_velocity

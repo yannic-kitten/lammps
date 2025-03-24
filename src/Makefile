@@ -52,6 +52,7 @@ PACKAGE = \
 	molecule \
 	kspace \
 	adios \
+	allpkg \
 	amoeba \
 	asphere \
 	awpmd \
@@ -236,6 +237,7 @@ PACKLIB = \
 	ml-quip \
 	rheo \
 	scafacos \
+	allpkg \
 	machdyn \
 	vtk \
 	electrode
@@ -246,6 +248,7 @@ PACKINT = atc awpmd colvars electrode gpu kokkos lepton ml-pod poems
 
 PACKEXT = \
 	adios \
+	allpkg \
 	h5md \
 	kim \
 	machdyn \
