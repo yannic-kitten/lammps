@@ -1,0 +1,8 @@
+The `balance/all` fix is more or less a drop-in replacement for the `balance` fix provided by LAMMPS.
+
+It supports two main decomposition methods 'staggered' and 'tensor'.
+The 'tensor' decomposition exists in two variants, one minimizing the average load of the system ('tensor classic') and one minimizing the maximal load of the system ('tensor max').
+
+For staggered decomposition you can choose to balance locally or globally (aka Histogram), while tensor decomposition only supports local balancing.
+
+Just like `balance`, `balance/all` supports all the `weight` options.
