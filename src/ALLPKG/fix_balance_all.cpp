@@ -64,6 +64,7 @@ enum { TENSOR_MAX, TENSOR_CLASSIC, NONE };
  *      grid style args = define grid
  *          style = staggered or tensor
  *              staggered args = none
+ *                cut_order = string of 'x', 'y', 'z'
  *              tensor args = max or classic
  *                max = use TENSOR_MAX method of ALL
  *                classic = use TENSOR method of ALL
@@ -131,6 +132,10 @@ FixBalanceAll::FixBalanceAll(LAMMPS *lmp, int narg, char **arg) :
   verbose = false;
   wtflag = 0;
   varflag = 0;
+  stag_cut_order_str = "zyx";   // by default cut z,y,x axes to get planes, columns and cells
+  stag_cut_order[0] = 2;
+  stag_cut_order[1] = 1;
+  stag_cut_order[2] = 0;
 
   // count max number of weight settings
 
@@ -149,8 +154,20 @@ FixBalanceAll::FixBalanceAll(LAMMPS *lmp, int narg, char **arg) :
     } else if (strcmp(arg[iarg],"grid") == 0) {
       if (iarg+1 >= narg) error->all(FLERR, "balance/all: grid requires one argument");
       if (gridstyle != UNKNOWN_GRID) error->all(FLERR, "balance/all: multiple grid styles defined");
-      if (strcmp(arg[iarg+1],"staggered") == 0) gridstyle = STAGGERED;
-      else if (strcmp(arg[iarg+1],"tensor") == 0) {
+      if (strcmp(arg[iarg+1],"staggered") == 0) {
+        gridstyle = STAGGERED;
+        if (iarg+2 >= narg) error->all(FLERR, "balance/overlay: grid staggered requires one extra argument");
+        if (strlen(arg[iarg+2]) != 3) error->all(FLERR, "balance/overlay: grid staggered expected one extra argument of 3 chars instead of {}", strlen(arg[iarg+2]));
+        stag_cut_order_str = arg[iarg+2];
+        for (int i=0; i<3; i++)
+          switch (char c = arg[iarg+2][i]) {
+            case 'x': stag_cut_order[i] = 0; break;
+            case 'y': stag_cut_order[i] = 1; break;
+            case 'z': stag_cut_order[i] = 2; break;
+            defult: error->all(FLERR, "expected x,y or z instead of {} in staggered config", c);
+          }
+        iarg++;
+      } else if (strcmp(arg[iarg+1],"tensor") == 0) {
         gridstyle = TENSOR;
         if (iarg+2 >= narg) error->all(FLERR, "balance/all: grid tensor requires one argument");
         if (strcmp(arg[iarg+2],"classic") == 0) tensorstyle = TENSOR_CLASSIC;
@@ -322,8 +339,8 @@ void FixBalanceAll::init()
   // use existing uniform grid
   if (comm->layout == Comm::LAYOUT_TILED) error->all(FLERR, "balance/all: initialisation from Comm::LAYOUT_TILED not possible.");
   if (comm->layout == Comm::LAYOUT_STAGGERED && gridstyle == TENSOR) error->all(FLERR, "balance/all: initialisation from Comm::STAGGERED not possible.");
-  if (gridstyle == STAGGERED && comm->style == 2 && (comm->staggered2spatial[0]!=2 || comm->staggered2spatial[1]!=1 || comm->staggered2spatial[2]!=0))
-    error->all(FLERR, "balance/all: comm_style staggered not zyx");
+  if (gridstyle == STAGGERED && comm->style == 2 && (comm->staggered2spatial[0]!=stag_cut_order[0] || comm->staggered2spatial[1]!=stag_cut_order[1] || comm->staggered2spatial[2]!=stag_cut_order[2]))
+    error->all(FLERR, "balance/overlay: comm_style staggered does not fit with balance/overlay cut order");
   if (domain->dimension == 2 && comm->procgrid[2] != 1) error->all(FLERR,"balance/all: 2D-simulation not possible with {} processors in z-direction", comm->procgrid[2]);
   procgrid_vec.assign(comm->procgrid, comm->procgrid+3);
   myloc_vec.assign(comm->myloc, comm->myloc+3);
@@ -373,7 +390,7 @@ void FixBalanceAll::init()
   if (comm->me == 0) {
     utils::logmesg(lmp, "ALL information ...\n");
     utils::logmesg(lmp, "\tversion: 0.9.3\n");
-    if (gridstyle == STAGGERED) utils::logmesg(lmp, "\tgrid: staggered\n");
+    if (gridstyle == STAGGERED) utils::logmesg(lmp, "\tgrid: staggered {}\n", stag_cut_order_str);
     else if (gridstyle == TENSOR) utils::logmesg(lmp, "\tgrid: tensor\n");
     utils::logmesg(lmp, "\tnumber of processors: {} x {} y {} z\n", procgrid_vec[0], procgrid_vec[1], procgrid_vec[2]);
     if (use_global_lb) {
@@ -509,14 +526,15 @@ void FixBalanceAll::balance_global()
   // atoms should be inside of the boundaries for the histogram calculation
   irregular->migrate_atoms();
 
-  for (int dim_balance=2; dim_balance>=0; dim_balance--) {
+  for (int n_dim_balance = 0; n_dim_balance < 3; n_dim_balance++) {
     // rebalance with ALL
     my_vertices = get_comm_vertices();
     all_global->setVertices(my_vertices);
     all_global->setSysSize(get_sys_size_from_domain());
 
-    all_global->setWork(calc_histogram(dim_balance));
+    all_global->setWork(calc_histogram(stag_cut_order[n_dim_balance]));
     all_global->setMethodData(n_bins.data());
+    all_global->setMethodData(stag_cut_order_str.data(), ALL::STRCUTORDER);
 
     all_global->balance();
     set_comm_vertices(all_global->getVertices());

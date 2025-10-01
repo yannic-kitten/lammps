@@ -24,6 +24,7 @@ FixStyle(balance/all,FixBalanceAll);
 #include "ALL.hpp"
 #include "pointers.h"
 #include <mpi.h>
+#include <string>
 
 namespace LAMMPS_NS {
 
@@ -67,7 +68,9 @@ class FixBalanceAll : public Fix {
   MPI_Comm y_masters;           // for tensor to gather ysplit
   MPI_Comm z_masters;           // for tensor to gather zsplit
   bool reduce_outvec_flag;      // recaluclate out vector?
-  double outvec_timer[3]; // TODO: remove
+  double outvec_timer[3]; // TODO(?): remove
+  int stag_cut_order[3];          // order of dimensions to cut for staggered grid methods (default is zyx: [2, 1, 0])
+  std::string stag_cut_order_str; // string representation of cut order for staggered grid methods
 
   // ALL objects
 
