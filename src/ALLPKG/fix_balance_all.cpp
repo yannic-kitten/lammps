@@ -362,6 +362,7 @@ void FixBalanceAll::init()
     all_global->setMinDomainSize(minimum_domain_size);
     all_global->setCommunicator(world);
     all_global->setProcTag(comm->me);
+    all_global->setMethodData(stag_cut_order_str.data(), ALL::STRCUTORDER);
     all_global->setup();
   }
 
@@ -534,7 +535,6 @@ void FixBalanceAll::balance_global()
 
     all_global->setWork(calc_histogram(stag_cut_order[n_dim_balance]));
     all_global->setMethodData(n_bins.data());
-    all_global->setMethodData(stag_cut_order_str.data(), ALL::STRCUTORDER);
 
     all_global->balance();
     set_comm_vertices(all_global->getVertices());
